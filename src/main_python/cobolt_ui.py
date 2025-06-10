@@ -1,62 +1,28 @@
 import sys
-import json
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, 
-                           QWidget, QTextEdit, QPushButton, QListWidget, 
-                           QLabel, QComboBox, QSplitter, QMessageBox, QListWidgetItem)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, Qt
-import ollama
-import requests
 from typing import List, Dict, Any
-from chat_history import ChatHistory
-import uuid
 
-class OllamaClient:
-    def __init__(self, base_url: str = "http://localhost:11434"):
-        self.base_url = base_url
-        self.client = ollama.Client(host=base_url, timeout=30)  # Add timeout
-        
-    def get_models(self) -> List[Dict[str, Any]]:
-        """Get available models with error handling"""
-        try:
-            # Try the direct API endpoint first
-            try:
-                response = requests.get(f"{self.base_url}/api/tags", timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    return data.get('models', [])
-            except (requests.RequestException, json.JSONDecodeError) as e:
-                print(f"Direct API fetch failed, falling back to client: {e}")
-            
-            # Fall back to the ollama package if direct API fails
-            response = self.client.list()
-            if hasattr(response, 'models'):
-                return response.models
-            return response.get('models', [])
-            
-        except Exception as e:
-            error_msg = f"Error fetching models: {e}"
-            print(error_msg)
-            raise RuntimeError("Failed to fetch models. Is Ollama running?")
-    
-    def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True):
-        """Send chat message with error handling"""
-        if not model or not messages:
-            raise ValueError("Model and messages are required")
-            
-        try:
-            return self.client.chat(
-                model=model,
-                messages=messages,
-                stream=stream,
-                options={
-                    'temperature': 0.7,  # Add default options
-                    'num_ctx': 2048
-                }
-            )
-        except Exception as e:
-            error_msg = f"Error in chat API: {e}"
-            print(error_msg)
-            raise RuntimeError("Failed to get response from the model. Please try again.")
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QVBoxLayout,
+    QHBoxLayout,
+    QWidget,
+    QTextEdit,
+    QPushButton,
+    QListWidget,
+    QLabel,
+    QComboBox,
+    QSplitter,
+    QMessageBox,
+    QListWidgetItem,
+)
+from PyQt6.QtCore import Qt
+import requests
+
+from chat_history import PersistentChatHistory
+from ollama_client import OllamaClient
+from ollama_worker import OllamaWorker
+import uuid
 
 class ChatWindow(QMainWindow):
     # In the ChatWindow class, modify the __init__ method:
@@ -66,7 +32,7 @@ class ChatWindow(QMainWindow):
         self.current_model = ""
         self.current_chat_id = None  # Track current chat
         self.messages = []  # Current chat messages
-        self.chat_history = ChatHistory()
+        self.chat_history = PersistentChatHistory()
         # Initialize UI
         self.init_ui()
         self.load_models()
@@ -495,59 +461,6 @@ class ChatWindow(QMainWindow):
         
         event.accept()
 
-class OllamaWorker(QThread):
-    """Worker thread for handling Ollama API calls with streaming support"""
-    response_received = pyqtSignal(str)  # For streaming updates
-    response_complete = pyqtSignal(str)  # For final complete response
-    error_occurred = pyqtSignal(str)     # For error reporting
-    
-    def __init__(self, client, model: str, messages: list):
-        """Initialize the worker thread"""
-        super().__init__()
-        self.client = client
-        self.model = model
-        self.messages = messages
-        self._is_running = True
-        self.full_response = ""
-
-    def run(self):
-        """Main execution method for the worker thread"""
-        if not self._is_running:
-            return
-            
-        try:
-            response = self.client.chat(
-                model=self.model,
-                messages=self.messages,
-                stream=True
-            )
-            
-            for chunk in response:
-                if not self._is_running:
-                    break
-                    
-                if 'message' in chunk and 'content' in chunk['message']:
-                    content = chunk['message']['content']
-                    if content:
-                        # Accumulate the response
-                        self.full_response += content  # This is the full response so far
-                        # Emit the current full response for UI updates
-                        self.response_received.emit(self.full_response)
-            
-            # Only emit complete if we weren't stopped
-            if self._is_running:
-                self.response_complete.emit(self.full_response)
-                
-        except Exception as e:
-            error_msg = f"Error in Ollama worker: {str(e)}"
-            print(error_msg)
-            if self._is_running:  # Only emit error if we weren't stopped
-                self.error_occurred.emit(str(e))
-    
-    def stop(self):
-        """Safely stop the worker thread"""
-        self._is_running = False
-        self.wait()  # Wait for the thread to finish
 
 def check_ollama_running():
     try:
