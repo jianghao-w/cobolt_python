@@ -39,3 +39,6 @@ npm-debug.log.*
  
 # virtual environment
 venv
+.venv
+
+__pycache__
