@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from .ollama_client import OllamaClient
+from ollama_client import OllamaClient
 
 
 class OllamaWorker(QThread):
