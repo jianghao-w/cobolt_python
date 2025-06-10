@@ -22,6 +22,8 @@ import requests
 from chat_history import PersistentChatHistory
 from ollama_client import OllamaClient
 from ollama_worker import OllamaWorker
+from mcp_client import MCPClient
+from mcp_tools import load_config, open_config_file
 import uuid
 
 class ChatWindow(QMainWindow):
@@ -29,6 +31,7 @@ class ChatWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.ollama = OllamaClient()
+        self.mcp_client = MCPClient()
         self.current_model = ""
         self.current_chat_id = None  # Track current chat
         self.messages = []  # Current chat messages
@@ -36,6 +39,8 @@ class ChatWindow(QMainWindow):
         # Initialize UI
         self.init_ui()
         self.load_models()
+        load_config()
+        self.mcp_client.connect_to_servers()
         
         # Connect signals
         self.chat_history_list.itemSelectionChanged.connect(self.on_chat_selection_changed)
@@ -124,6 +129,14 @@ class ChatWindow(QMainWindow):
         new_chat_btn = QPushButton("New Chat")
         new_chat_btn.clicked.connect(self.new_chat)
         sidebar_layout.addWidget(new_chat_btn)
+
+        open_config_btn = QPushButton("Open MCP Config")
+        open_config_btn.clicked.connect(self.open_mcp_config)
+        sidebar_layout.addWidget(open_config_btn)
+
+        refresh_mcp_btn = QPushButton("Refresh MCP")
+        refresh_mcp_btn.clicked.connect(self.refresh_mcp_connections)
+        sidebar_layout.addWidget(refresh_mcp_btn)
         
         # Main chat area
         chat_area = QWidget()
@@ -286,10 +299,12 @@ class ChatWindow(QMainWindow):
             if self.messages and self.messages[-1].get("role") == "assistant":
                 self.messages[-1]["content"] = response
                 self.update_chat_display()
-            
+
             # Save to database
             self.chat_history.add_message(self.current_chat_id, "assistant", response)
             self._message_saved = True
+
+        self._process_tool_calls(response)
 
     def update_window_title(self, title: str):
         """Update the window title with the chat title"""
@@ -425,6 +440,52 @@ class ChatWindow(QMainWindow):
         self.message_display.verticalScrollBar().setValue(
             self.message_display.verticalScrollBar().maximum()
         )
+
+    def open_mcp_config(self):
+        try:
+            open_config_file()
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to open config: {exc}")
+
+    def refresh_mcp_connections(self):
+        load_config()
+        result = self.mcp_client.connect_to_servers()
+        if not result.get("success"):
+            QMessageBox.warning(
+                self,
+                "MCP Connection Error",
+                result.get("errorMessage", "Failed to connect to MCP servers"),
+            )
+        else:
+            self.statusBar().showMessage("MCP connections refreshed")
+
+    def _process_tool_calls(self, response: str) -> None:
+        import json
+        import re
+
+        match = re.search(r"<tool_calls>(.*?)</tool_calls>", response, re.S)
+        if not match:
+            return
+
+        try:
+            tool_calls = json.loads(match.group(1))
+        except Exception as exc:
+            print(f"Failed to parse tool calls: {exc}")
+            return
+
+        for call in tool_calls:
+            name = call.get("name")
+            arguments = call.get("arguments", {})
+            tool = next(
+                (t for t in self.mcp_client.tool_cache if t.name == name),
+                None,
+            )
+            if tool:
+                result = tool.call(arguments)
+                self.messages.append({"role": "assistant", "content": result})
+                if self.current_chat_id:
+                    self.chat_history.add_message(self.current_chat_id, "assistant", result)
+        self.update_chat_display()
 
     def closeEvent(self, event):
         """Handle window close event"""
