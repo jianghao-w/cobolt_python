@@ -24,6 +24,7 @@ from ollama_client import OllamaClient
 from ollama_worker import OllamaWorker
 from mcp_client import MCPClient
 from mcp_tools import load_config, open_config_file
+from mcp_worker import McpRefreshWorker
 import uuid
 
 class ChatWindow(QMainWindow):
@@ -448,8 +449,15 @@ class ChatWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to open config: {exc}")
 
     def refresh_mcp_connections(self):
+        print("[UI] Refreshing MCP connections")
+        self.statusBar().showMessage("Refreshing MCP connections...")
         load_config()
-        result = self.mcp_client.connect_to_servers()
+        self.mcp_worker = McpRefreshWorker(self.mcp_client)
+        self.mcp_worker.finished.connect(self.handle_mcp_refresh_result)
+        self.mcp_worker.start()
+
+    def handle_mcp_refresh_result(self, result: Dict[str, Any]) -> None:
+        print(f"[UI] MCP refresh result: {result}")
         if not result.get("success"):
             QMessageBox.warning(
                 self,
