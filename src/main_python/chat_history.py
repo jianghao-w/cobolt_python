@@ -117,10 +117,12 @@ class PersistentChatHistory:
             )
             conn.commit()
 
-    def delete_chat(self, chat_id: str) -> None:
+    def delete_chat(self, chat_id: str) -> bool:
+        """Delete a chat and return True if a row was removed."""
         with self._get_connection() as conn:
-            conn.execute("DELETE FROM chats WHERE id=?", (chat_id,))
+            cur = conn.execute("DELETE FROM chats WHERE id=?", (chat_id,))
             conn.commit()
+            return cur.rowcount > 0
 
     def get_recent_chats(self, limit: int = 20) -> List[Chat]:
         with self._get_connection() as conn:

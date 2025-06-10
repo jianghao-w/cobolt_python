@@ -50,12 +50,15 @@ class ChatWindow(QMainWindow):
                 # Load existing chat
                 self.current_chat_id = chat_id
                 messages = self.chat_history.get_messages(chat_id)
-                self.messages = [dict(msg) for msg in messages]
+                self.messages = [
+                    {"role": msg.role, "content": msg.content} for msg in messages
+                ]
                 
                 # Update window title
                 chat = self.chat_history.get_chat(chat_id)
                 if chat:
-                    self.setWindowTitle(f"Cobolt - {chat.get('title', 'Untitled Chat')}")
+                    title = chat.title or "Untitled Chat"
+                    self.setWindowTitle(f"Cobolt - {title}")
             else:
                 # Create new chat
                 self.current_chat_id = str(uuid.uuid4())
@@ -197,7 +200,7 @@ class ChatWindow(QMainWindow):
         if hasattr(self, 'messages') and self.messages and self.current_chat_id:
             # If this was a new chat with no title yet, set a default title
             chat = self.chat_history.get_chat(self.current_chat_id)
-            if chat and (not chat.get('title') or chat.get('title') == 'New Chat'):
+            if chat and (not chat.title or chat.title == 'New Chat'):
                 # Try to get title from first user message
                 for msg in self.messages:
                     if msg.get('role') == 'user':
@@ -308,12 +311,12 @@ class ChatWindow(QMainWindow):
         
         chats = self.chat_history.get_recent_chats()
         for chat in chats:
-            item = QListWidgetItem(chat.get('title', 'Untitled Chat'))
-            item.setData(Qt.ItemDataRole.UserRole, chat['id'])
+            item = QListWidgetItem(chat.title or 'Untitled Chat')
+            item.setData(Qt.ItemDataRole.UserRole, chat.id)
             self.chat_history_list.addItem(item)
             
             # Select the current chat if it exists in the list
-            if chat['id'] == self.current_chat_id:
+            if chat.id == self.current_chat_id:
                 self.chat_history_list.setCurrentItem(item)
         
         # Reconnect the signal
@@ -345,7 +348,7 @@ class ChatWindow(QMainWindow):
         # Get current chat list before deletion for debugging
         current_chats = self.chat_history.get_recent_chats()
         print(f"Current number of chats before deletion: {len(current_chats)}")
-        print(f"Chats before deletion: {[c['id'] for c in current_chats]}")
+        print(f"Chats before deletion: {[c.id for c in current_chats]}")
         print(f"Attempting to delete chat ID: {chat_id}")
         print(f"Current active chat ID: {self.current_chat_id}")
         
@@ -356,9 +359,9 @@ class ChatWindow(QMainWindow):
         # Determine which chat to select after deletion
         if len(current_chats) > 1:
             if current_row == len(current_chats) - 1:  # Last item
-                next_chat_id = current_chats[current_row - 1]['id']  # Select previous
+                next_chat_id = current_chats[current_row - 1].id
             else:
-                next_chat_id = current_chats[current_row + 1]['id']  # Select next
+                next_chat_id = current_chats[current_row + 1].id
         
         # Confirm deletion
         reply = QMessageBox.question(
@@ -378,7 +381,7 @@ class ChatWindow(QMainWindow):
                     # Get remaining chats after deletion
                     remaining_chats = self.chat_history.get_recent_chats()
                     print(f"Number of remaining chats: {len(remaining_chats)}")
-                    print(f"Remaining chat IDs: {[c['id'] for c in remaining_chats]}")
+                    print(f"Remaining chat IDs: {[c.id for c in remaining_chats]}")
                     
                     # Clear and repopulate the chat history list
                     self.chat_history_list.clear()
@@ -386,15 +389,17 @@ class ChatWindow(QMainWindow):
                     
                     # Select the next chat if available
                     if next_chat_id:
-                        # Find and select the next chat
                         for i in range(self.chat_history_list.count()):
-                            if self.chat_history_list.item(i).data(Qt.ItemDataRole.UserRole) == next_chat_id:
+                            if (
+                                self.chat_history_list.item(i).data(Qt.ItemDataRole.UserRole)
+                                == next_chat_id
+                            ):
                                 self.chat_history_list.setCurrentRow(i)
                                 self.on_chat_selected(next_chat_id)
                                 break
-                    elif remaining_chats:  # If no next_chat_id but chats remain, select the first one
+                    elif remaining_chats:
                         self.chat_history_list.setCurrentRow(0)
-                        self.on_chat_selected(remaining_chats[0]['id'])
+                        self.on_chat_selected(remaining_chats[0].id)
                     else:  # No chats left, create a new one
                         self.new_chat()
                         
